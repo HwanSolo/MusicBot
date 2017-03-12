@@ -10,6 +10,8 @@ from shutil import get_terminal_size
 
 from .lib.event_emitter import EventEmitter
 
+from musicbot.config import ConfigDefaults
+
 
 class PatchedBuff:
     """
@@ -102,6 +104,9 @@ class MusicPlayer(EventEmitter):
         self.state = MusicPlayerState.STOPPED
 
         self.loop.create_task(self.websocket_check())
+
+        self.autoplaylist = bot.autoplaylist
+        self.autoplaylist_file = ConfigDefaults.auto_playlist_file
 
     @property
     def volume(self):

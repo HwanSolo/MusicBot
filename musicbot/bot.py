@@ -27,6 +27,7 @@ from musicbot.player import MusicPlayer
 from musicbot.config import Config, ConfigDefaults
 from musicbot.permissions import Permissions, PermissionsDefaults
 from musicbot.utils import load_file, write_file, sane_round_int
+from musicbot.utils import load_file, write_file, sane_round_int, illegal_char
 
 from . import exceptions
 from . import downloader
@@ -82,10 +83,6 @@ class MusicBot(discord.Client):
         self.exit_signal = None
         self.init_ok = False
         self.cached_client_id = None
-
-        if not self.autoplaylist:
-            print("Warning: Autoplaylist is empty, disabling.")
-            self.config.auto_playlist = False
 
         # TODO: Do these properly
         ssd_defaults = {'last_np_msg': None, 'auto_paused': False}
@@ -415,14 +412,14 @@ class MusicBot(discord.Client):
 
     async def on_player_finished_playing(self, player, **_):
         if not player.playlist.entries and not player.current_entry and self.config.auto_playlist:
-            while self.autoplaylist:
-                song_url = choice(self.autoplaylist)
+            while player.autoplaylist:
+                song_url = choice(player.autoplaylist)
                 info = await self.downloader.safe_extract_info(player.playlist.loop, song_url, download=False, process=False)
 
                 if not info:
-                    self.autoplaylist.remove(song_url)
+                    player.autoplaylist.remove(song_url)
                     self.safe_print("[Info] Removing unplayable song from autoplaylist: %s" % song_url)
-                    write_file(self.config.auto_playlist_file, self.autoplaylist)
+                    write_file(player.autoplaylist_file, player.autoplaylist)
                     continue
 
                 if info.get('entries', None):  # or .get('_type', '') == 'playlist'
@@ -438,7 +435,7 @@ class MusicBot(discord.Client):
 
                 break
 
-            if not self.autoplaylist:
+            if not player.autoplaylist:
                 print("[Warning] No playable songs in the autoplaylist, disabling.")
                 self.config.auto_playlist = False
 
@@ -754,7 +751,7 @@ class MusicBot(discord.Client):
 
             helpmsg += ", ".join(commands)
             helpmsg += "```"
-            helpmsg += "https://github.com/SexualRhinoceros/MusicBot/wiki/Commands-list"
+            #helpmsg += "https://github.com/SexualRhinoceros/MusicBot/wiki/Commands-list"
 
             return Response(helpmsg, reply=True, delete_after=60)
 
@@ -897,6 +894,11 @@ class MusicBot(discord.Client):
                 return
 
             song_url = info['entries'][0]['webpage_url']
+
+
+
+
+
             info = await self.downloader.extract_info(player.playlist.loop, song_url, download=False, process=False)
             # Now I could just do: return await self.cmd_play(player, channel, author, song_url)
             # But this is probably fine
@@ -1797,15 +1799,246 @@ class MusicBot(discord.Client):
 
         return Response(":ok_hand:", delete_after=20)
 
+    async def cmd_paul(self, server):
+        message = 'HI I AM PAWL BOT! PEWWWWWWWPPPPPPPP'
+        return Response(message, delete_after=30)
+
+    async def cmd_pladd(self, player, song_url=None):
+        """
+        Usage:
+            {command_prefix}pladd current song
+            {command_prefix}pladd song_url
+
+        Adds a song to the current set playlist.
+        'pladd' will add current playing song.
+        """
+
+        #No url provided
+        if not song_url:
+            #Check if there is something playing and get the information
+            if player._current_entry:
+                song_url = player._current_entry.url
+                title = player._current_entry.title
+
+            else:
+                raise exceptions.CommandError('There is nothing playing.', expire_in=20)
+
+        else:
+            #Get song info from url
+            info = await self.downloader.safe_extract_info(player.playlist.loop, song_url, download=False, process=False)
+
+            try:
+            	title = info.get('title', '')
+
+            except (AttributeError, TypeError, ValueError):
+            	raise exceptions.CommandError('Invalid url. Please insure link is a valid YouTube, SoundCloud or BandCamp url.', expire_in=20)
+
+            #Verify proper url
+            if not title:
+                raise exceptions.CommandError('Invalid url. Please insure link is a valid YouTube, SoundCloud or BandCamp url.', expire_in=20)
+
+        #Verify song isn't already in our playlist
+        for url in player.autoplaylist:
+            if song_url == url:
+                return Response("Song already present in this playlist.", delete_after=30)
+
+        player.autoplaylist.append(song_url)
+        write_file(player.autoplaylist_file, player.autoplaylist)
+        player.autoplaylist = load_file(player.autoplaylist_file)
+        return Response("Added %s to current playlist." % title, delete_after=30)
+
+    async def cmd_plremove(self, player, song_url=None):
+        """
+        Usage:
+            {command_prefix}plremove
+            {command_prefix}plremove song_url
+
+        Remove a song from the current playlist.
+        'plremove' will remove current playing song.
+
+        """
+
+        #No url provided
+        if not song_url:
+            #Check if there is something playing
+            if not player._current_entry:
+                raise exceptions.CommandError('There is nothing playing.', expire_in=20)
+
+            #Get the url of the current entry
+            else:
+                song_url = player._current_entry.url
+                title = player._current_entry.title
+
+        else:
+            #Get song info from url
+            info = await self.downloader.safe_extract_info(player.playlist.loop, song_url, download=False, process=False)
+
+            #Verify proper url
+            if not info:
+                raise exceptions.CommandError('Invalid url. Please insure link is a valid YouTube, SoundCloud or BandCamp url.', expire_in=20)
+
+            else:
+                title = info.get('title', '')
+
+        #Verify that the song is in our playlist
+        for url in player.autoplaylist:
+            if song_url == url:
+                player.autoplaylist.remove(song_url)
+                write_file(player.autoplaylist_file, player.autoplaylist)
+                player.autoplaylist = load_file(player.autoplaylist_file)
+                return Response("Removed %s from the current playlist." % title, delete_after=30)
+
+        return Response("Song not present in this playlist.", delete_after=30)
+
+    async def cmd_newpl(self, player, file_name=None, song_url=""):
+        """
+        Usage:
+            {command_prefix}newpl file_name [song_url]
+
+        Creates a new autoplaylist.
+        """
+
+        #Verify file name was provided
+        if file_name:
+            #Verify no illegal characters
+            if illegal_char(file_name, "[/\\:*?\"<>|]"):
+                raise exceptions.CommandError('Please ensure there are no illegal characters in the file name.', expire_in=20)
+
+            #Create new file
+            else:
+                if song_url:
+                    #Get song info from url
+                    info = await self.downloader.safe_extract_info(player.playlist.loop, song_url, download=False, process=False)
+                    try:
+                    	title = info.get('title', '')
+
+                    except (AttributeError, TypeError, ValueError):
+                    	raise exceptions.CommandError('Invalid url. Please insure link is a valid YouTube, SoundCloud or BandCamp url.', expire_in=20)
+
+                    #Verify proper url
+                    if not title:
+                        raise exceptions.CommandError('Invalid url. Please insure link is a valid YouTube, SoundCloud or BandCamp url.', expire_in=20)
+                else:
+                    raise exceptions.CommandError('Please add link to a valid YouTube, SoundCloud or BandCamp url.', expire_in=20)
+
+                #Append the file extension and make everything lowercase (important for checking against already existing files)
+                fileName = (file_name + ".txt").lower()
+
+                #Get the filepath, and set it to the autoplaylist directory
+                savePath = os.path.join(os.path.dirname(__file__), os.pardir) + "\config\\"
+
+                #Check to make sure there isn't already a file with the same name
+                for root, dirs, files in os.walk(savePath):
+                    for file in files:
+                        if fileName in file:
+                            raise exceptions.CommandError("%s already exists in %s." % (fileName, savePath), expire_in=20)
+
+                write_file(savePath + fileName, [song_url])
+                return Response("Created new autoplaylist called %s." % file_name, delete_after=30)
+
+
+
+        #Inform user
+        else:
+            raise exceptions.CommandError('Please specify a file name for the new playlist.', expire_in=20)
+
+
+    async def cmd_loadpl(self, player, file_name=None):
+        """
+        Usage:
+            {command_prefix}loadpl file_name
+
+        Loads an existing autoplaylist.
+        """
+
+    	#Verify file name was provided
+        if file_name:
+        	#Append the file extension and make everything lowercase (important for checking against already existing files)
+            fileName = (file_name + ".txt").lower()
+
+        	#Get the filepath, and set it to the autoplaylist directory
+            savePath = os.path.join(os.path.dirname(__file__), os.pardir) + "\config\\"
+
+                #Check to locate existing file
+            for root, dirs, files in os.walk(savePath):
+                if fileName in files:
+                    player.autoplaylist = load_file(savePath + fileName)
+                    player.autoplaylist_file = savePath + fileName
+                    song_url = choice(player.autoplaylist)
+                    if not player.playlist.entries and not player.current_entry and self.config.auto_playlist: #if nothing is queued, start a song
+                        await player.playlist.add_entry(song_url, channel=None, author=None)
+                    return Response("Loaded the %s playlist." % file_name, delete_after=30)
+
+                else:
+                    raise exceptions.CommandError('Could not find %s, please ensure the spelling is correct and that the file exists.' % file_name, expire_in=20)
+        else:
+            raise exceptions.CommandError('Please specify which playlist to load.', expire_in=20)
+
+
+    async def cmd_listpl(self):
+        """
+        Usage:
+            {command_prefix}listpl
+
+        Gives a list of existing autoplaylists.
+        """
+
+        #Get the filepath, and set it to the autoplaylist directory
+        savePath = os.path.join(os.path.dirname(__file__), os.pardir) + "\config\\"
+
+        listOfPlaylists = []
+
+        #Check to locate existing file
+        for root, dirs, files in os.walk(savePath):
+            for file in files:
+                if file.endswith(".txt"):
+                    listOfPlaylists.append(file[:-4])
+                else:
+                    pass
+
+        #Remove settings files
+        listOfPlaylists.remove("blacklist")
+        listOfPlaylists.remove("whitelist")
+
+        return Response("Playlists available: %s." % ", ".join(listOfPlaylists), delete_after=30)
+
+
+    async def cmd_ping(self):
+        """
+        Usage:
+            {command_prefix}ping
+        Ping command to test latency
+        """
+        return Response("Pong!")
+
+    async def cmd_sendall(self, args, leftover_args):
+        """
+        Usage:
+            {command_prefix}sendall <message>
+        Sends a message to all servers the bot is on
+        """
+        if leftover_args:
+            args = ' '.join([args, *leftover_args])
+        for s in self.servers:
+            await self.safe_send_message(s, args)
 
     async def cmd_disconnect(self, server):
         await self.disconnect_voice_client(server)
         return Response(":hear_no_evil:", delete_after=20)
 
-    async def cmd_restart(self, channel):
-        await self.safe_send_message(channel, ":wave:")
+    async def cmd_restart(self, author, channel):
+        for s in self.servers:
+            await self.safe_send_message(s, "Restarting (by {0.name}#{0.discriminator})".format(author))
         await self.disconnect_all_voice_clients()
         raise exceptions.RestartSignal
+
+    async def cmd_invite(self):
+        """
+        Usage:
+            {command_prefix}invite
+        Prints invite link for the bot
+        """
+        return Response("https://discordapp.com/oauth2/authorize?&client_id=288872042277896195&scope=bot&permissions=0")
 
     async def cmd_shutdown(self, channel):
         await self.safe_send_message(channel, ":wave:")

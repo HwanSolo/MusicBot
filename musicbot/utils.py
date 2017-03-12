@@ -30,6 +30,14 @@ def write_file(filename, contents):
             f.write(str(item))
             f.write('\n')
 
+            
+def illegal_char(string, chars):
+    illegal = re.compile(chars)
+    if illegal.search(string):
+        return True
+    else:
+        return False
+
 
 def slugify(value):
     value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')
