@@ -1800,13 +1800,13 @@ class MusicBot(discord.Client):
         return Response(":ok_hand:", delete_after=20)
 
     async def cmd_paul(self, server):
-        message = 'HI I AM PAWL BOT! PEWWWWWWWPPPPPPPP'
+        message = 'HI I AM PAWL BOT! This Pewp is so kewl.'
         return Response(message, delete_after=30)
 
     async def cmd_pladd(self, player, song_url=None):
         """
         Usage:
-            {command_prefix}pladd current song
+            {command_prefix}pladd
             {command_prefix}pladd song_url
 
         Adds a song to the current set playlist.
@@ -1925,15 +1925,15 @@ class MusicBot(discord.Client):
                 fileName = (file_name + ".txt").lower()
 
                 #Get the filepath, and set it to the autoplaylist directory
-                savePath = os.path.join(os.path.dirname(__file__), os.pardir) + "\config\\"
+                savePath = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)), "config")
 
                 #Check to make sure there isn't already a file with the same name
                 for root, dirs, files in os.walk(savePath):
-                    for file in files:
-                        if fileName in file:
+                    for __file__ in files:
+                        if fileName in __file__:
                             raise exceptions.CommandError("%s already exists in %s." % (fileName, savePath), expire_in=20)
 
-                write_file(savePath + fileName, [song_url])
+                write_file(os.path.join(savePath,fileName), [song_url])
                 return Response("Created new autoplaylist called %s." % file_name, delete_after=30)
 
 
@@ -1957,13 +1957,14 @@ class MusicBot(discord.Client):
             fileName = (file_name + ".txt").lower()
 
         	#Get the filepath, and set it to the autoplaylist directory
-            savePath = os.path.join(os.path.dirname(__file__), os.pardir) + "\config\\"
+            savePath = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)), "config")
 
                 #Check to locate existing file
             for root, dirs, files in os.walk(savePath):
                 if fileName in files:
-                    player.autoplaylist = load_file(savePath + fileName)
-                    player.autoplaylist_file = savePath + fileName
+                    player.autoplaylist = load_file(os.path.join(savePath,fileName))
+                    player.autoplaylist_file = os.path.join(savePath,fileName)
+                    print player.autoplaylist_file
                     song_url = choice(player.autoplaylist)
                     if not player.playlist.entries and not player.current_entry and self.config.auto_playlist: #if nothing is queued, start a song
                         await player.playlist.add_entry(song_url, channel=None, author=None)
@@ -1984,15 +1985,15 @@ class MusicBot(discord.Client):
         """
 
         #Get the filepath, and set it to the autoplaylist directory
-        savePath = os.path.join(os.path.dirname(__file__), os.pardir) + "\config\\"
+        savePath = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)), "config")
 
         listOfPlaylists = []
 
         #Check to locate existing file
         for root, dirs, files in os.walk(savePath):
-            for file in files:
-                if file.endswith(".txt"):
-                    listOfPlaylists.append(file[:-4])
+            for __file__ in files:
+                if __file__.endswith(".txt"):
+                    listOfPlaylists.append(__file__[:-4])
                 else:
                     pass
 
@@ -2011,7 +2012,7 @@ class MusicBot(discord.Client):
         """
         return Response("Pong!")
 
-    async def cmd_sendall(self, args, leftover_args):
+    async def cmd_sendall(self, author, channel, args, leftover_args):
         """
         Usage:
             {command_prefix}sendall <message>
@@ -2020,7 +2021,7 @@ class MusicBot(discord.Client):
         if leftover_args:
             args = ' '.join([args, *leftover_args])
         for s in self.servers:
-            await self.safe_send_message(s, args)
+            await self.safe_send_message(s, "{0.name}#{0.discriminator}: ".format(author) + args)
 
     async def cmd_disconnect(self, server):
         await self.disconnect_voice_client(server)
